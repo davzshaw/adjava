@@ -5,6 +5,11 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 public class Database {
 
@@ -89,26 +94,54 @@ public class Database {
 
     public static void recomendarProductosUsuario(int id, Statement statement) {
         try {
-            String query = String.format("SELECT p.categoria FROM Compra c JOIN Producto p on c.Producto_id = p.id WHERE c.Usuario_id = %d GROUP BY p.categoria HAVING count(*) >= 2", id);
-            ResultSet rowsSelected = statement.executeQuery(query);
-            StringBuilder categorias = new StringBuilder();
-            while (rowsSelected.next()) {
-                if (categorias.length() > 0) {
-                    categorias.append(",");
-                }
-                categorias.append("'").append(rowsSelected.getString("categoria")).append("'");
+            String queryCompras = String.format("SELECT c.Producto_id FROM Compra c WHERE c.Usuario_id = %d", id);
+            ResultSet comprasResult = statement.executeQuery(queryCompras);
+
+            List<Integer> productosCompradosIds = new ArrayList<>();
+
+            while (comprasResult.next()) {
+                productosCompradosIds.add(comprasResult.getInt("Producto_id"));
             }
 
-            if (categorias.length() > 0) {
-                String productoQuery = String.format("SELECT * FROM Producto WHERE categoria IN (%s)", categorias.toString());
-                ResultSet productosResult = statement.executeQuery(productoQuery);
-                System.out.println("Productos recomendados para ti:");
-                while (productosResult.next()) {
-                    String productoNombre = productosResult.getString("nombre");
-                    String productoCategoria = productosResult.getString("categoria");
-                    double productoPrecio = productosResult.getDouble("precio");
-                    System.out.println(String.format("Producto: %s, Categoria: %s, Precio: %f", productoNombre, productoCategoria, productoPrecio));
+            if (productosCompradosIds.isEmpty()) {
+                System.out.println("El usuario con id " + id + " no ha realizado compras.");
+                return;
+            }
+
+            String queryProductos = "SELECT id, nombre, categoria, precio FROM Producto";
+            ResultSet productosResult = statement.executeQuery(queryProductos);
+
+            Map<Integer, Map<String, Object>> todosProductos = new HashMap<>();
+            Map<String, Integer> categoriasCount = new HashMap<>();
+
+            while (productosResult.next()) {
+                int productoId = productosResult.getInt("id");
+                String categoria = productosResult.getString("categoria");
+                
+                Map<String, Object> producto = new HashMap<>();
+                producto.put("id", productoId);
+                producto.put("nombre", productosResult.getString("nombre"));
+                producto.put("categoria", categoria);
+                producto.put("precio", productosResult.getDouble("precio"));
+                
+                todosProductos.put(productoId, producto);
+
+                if (productosCompradosIds.contains(productoId)) {
+                    categoriasCount.put(categoria, categoriasCount.getOrDefault(categoria, 0) + 1);
                 }
+            }
+
+            List<String> categoriasRecomendadas = categoriasCount.entrySet().stream()
+                .filter(entry -> entry.getValue() >= 2)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+
+            if (!categoriasRecomendadas.isEmpty()) {
+                System.out.println("Productos recomendados para ti:");
+                todosProductos.values().stream()
+                    .filter(p -> categoriasRecomendadas.contains(p.get("categoria")))
+                    .forEach(p -> System.out.println(String.format("Producto: %s, Categoria: %s, Precio: %.2f", 
+                        p.get("nombre"), p.get("categoria"), (Double)p.get("precio"))));
             } else {
                 System.out.println("No se encontraron categorías compradas más de 2 veces por el usuario con id " + id + ".");
             }
